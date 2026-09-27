@@ -25,6 +25,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import threading
 import time
 from io import BytesIO
 from pathlib import Path
@@ -934,15 +935,31 @@ def _write_file_command(dev, file_path: str) -> bool:
 # These models are not detected as serial ports but as (Win)USB devices
 class LcdCommTuringUSB(LcdComm):
     def __init__(self, com_port: str = "AUTO", display_width: int = 480, display_height: int = 1920,
-                 update_queue: Optional[queue.Queue] = None):
+                 update_queue: Optional[queue.Queue] = None, frame_rate: float = 1.0,
+                 frame_encoding: str = "JPEG", jpeg_quality: int = 90):
         super().__init__(com_port, display_width, display_height, update_queue)
         self.dev, self.dev_pid = find_usb_device()
         self.display_width, self.display_height = PRODUCT_ID[self.dev_pid]
         # Store the current screen state as an image that will be continuously updated and sent
         self.current_state = Image.new("RGBA", (self.get_width(), self.get_height()), (0, 0, 0, 0))
+        self._base_frame_interval = 1.0 / max(0.1, float(frame_rate))
+        self._frame_interval = self._base_frame_interval
+        self._frame_encoding = str(frame_encoding).upper()
+        self._jpeg_quality = max(1, min(95, int(jpeg_quality)))
+        self._frame_condition = threading.Condition()
+        self._frame_dirty = False
+        self._frame_sender_started = False
+        self._overlay_image = None
+        self._overlay_position = (0, 0)
+        self._sent_frame_count = 0
 
     def InitializeComm(self):
         send_sync_command(self.dev)
+        if not self._frame_sender_started:
+            self._frame_sender_started = True
+            threading.Thread(target=self._frame_sender, name="TUR_USB_Frame_Sender", daemon=True).start()
+            logger.info("TUR_USB frame sender capped at %.2f FPS using %s", 1.0 / self._frame_interval,
+                        self._frame_encoding)
 
     def Reset(self):
         # Do not enable the reset command for now on Turing USB models
@@ -950,7 +967,11 @@ class LcdCommTuringUSB(LcdComm):
         pass
 
     def Clear(self):
-        clear_image(self.dev)
+        with self._frame_condition:
+            self.current_state = Image.new("RGBA", (self.get_width(), self.get_height()), (0, 0, 0, 0))
+            self._frame_dirty = False
+        with self.update_queue_mutex:
+            clear_image(self.dev)
 
     def ScreenOff(self):
         # Turing USB models do not implement a "screen off" command (that we know of): use SetBrightness(0) instead
@@ -967,37 +988,132 @@ class LcdCommTuringUSB(LcdComm):
         send_brightness_command(self.dev, converted)
 
     def SetOrientation(self, orientation: Orientation):
-        self.orientation = orientation
-        # Recreate new state with correct width/height now that screen orientation has changed
-        self.current_state = Image.new("RGBA", (self.get_width(), self.get_height()), (0, 0, 0, 0))
+        with self._frame_condition:
+            self.orientation = orientation
+            # Recreate new state with correct width/height now that screen orientation has changed
+            self.current_state = Image.new("RGBA", (self.get_width(), self.get_height()), (0, 0, 0, 0))
+            self._frame_dirty = False
 
     def DisplayPILImage(self, image: Image.Image, x: int = 0, y: int = 0, image_width: int = 0, image_height: int = 0):
-        # If the image height/width isn't provided, use the native image size
-        if not image_height:
-            image_height = image.size[1]
-        if not image_width:
-            image_width = image.size[0]
+        with self._frame_condition:
+            # If the image height/width isn't provided, use the native image size
+            if not image_height:
+                image_height = image.size[1]
+            if not image_width:
+                image_width = image.size[0]
 
-        if image.size[1] > self.get_height():
-            image_height = self.get_height()
-        if image.size[0] > self.get_width():
-            image_width = self.get_width()
+            if image.size[1] > self.get_height():
+                image_height = self.get_height()
+            if image.size[0] > self.get_width():
+                image_width = self.get_width()
 
-        if image_width != image.size[0] or image_height != image.size[1]:
-            image = image.crop((0, 0, image_width, image_height))
+            if image_width != image.size[0] or image_height != image.size[1]:
+                image = image.crop((0, 0, image_width, image_height))
 
-        # Paste new image over existing screen state
-        self.current_state.paste(image, (x, y))
+            # Paste new image over existing screen state
+            self.current_state.paste(image, (x, y))
+            self._frame_dirty = True
+            self._frame_condition.notify()
 
-        # Rotate image before sending to screen: all images sent to the screen are in portrait mode
-        if self.orientation == Orientation.LANDSCAPE:
-            base_image = self.current_state.transpose(Image.Transpose.ROTATE_270)
-        elif self.orientation == Orientation.REVERSE_LANDSCAPE:
-            base_image = self.current_state.transpose(Image.Transpose.ROTATE_90)
-        elif self.orientation == Orientation.PORTRAIT:
-            base_image = self.current_state.transpose(Image.Transpose.ROTATE_180)
-        else:  # Orientation.REVERSE_PORTRAIT is initial screen orientation
-            base_image = self.current_state
+    def SetOverlayImage(self, image: Image.Image, x: int = 0, y: int = 0):
+        with self._frame_condition:
+            self._overlay_image = image.convert("RGBA").copy()
+            self._overlay_position = (int(x), int(y))
+            self._frame_dirty = True
+            self._frame_condition.notify()
 
-        # Send image data (auto JPEG fallback when payload exceeds device limit)
-        send_pil_image_auto(self.dev, base_image, max_bytes=MAX_IMAGE_PAYLOAD_DEFAULT)
+    def SetOverlayImageAndWait(self, image: Image.Image, x: int = 0, y: int = 0, timeout: float = 5.0):
+        with self._frame_condition:
+            previous_count = self._sent_frame_count
+            self._overlay_image = image.convert("RGBA").copy()
+            self._overlay_position = (int(x), int(y))
+            self._frame_dirty = True
+            self._frame_condition.notify()
+            deadline = time.monotonic() + timeout
+            while self._sent_frame_count <= previous_count:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                self._frame_condition.wait(timeout=remaining)
+            return True
+
+    def ClearOverlayImage(self):
+        with self._frame_condition:
+            self._overlay_image = None
+            self._frame_dirty = True
+            self._frame_condition.notify()
+
+    def ClearOverlayImageAndWait(self, timeout: float = 5.0):
+        with self._frame_condition:
+            previous_count = self._sent_frame_count
+            self._overlay_image = None
+            self._frame_dirty = True
+            self._frame_condition.notify()
+            deadline = time.monotonic() + timeout
+            while self._sent_frame_count <= previous_count:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                self._frame_condition.wait(timeout=remaining)
+            return True
+
+    def SetTemporaryFrameRate(self, frame_rate: float):
+        with self._frame_condition:
+            self._frame_interval = 1.0 / max(0.1, float(frame_rate))
+            self._frame_condition.notify_all()
+
+    def ResetFrameRate(self):
+        with self._frame_condition:
+            self._frame_interval = self._base_frame_interval
+            self._frame_condition.notify_all()
+
+    def _frame_sender(self):
+        last_send = 0.0
+        sent_frames = 0
+        while True:
+            with self._frame_condition:
+                while not self._frame_dirty:
+                    self._frame_condition.wait()
+
+                send_deadline = last_send + self._frame_interval
+                while time.monotonic() < send_deadline:
+                    self._frame_condition.wait(timeout=send_deadline - time.monotonic())
+
+                self._frame_dirty = False
+                base_image = self.current_state.copy()
+                overlay_image = self._overlay_image.copy() if self._overlay_image is not None else None
+                overlay_position = self._overlay_position
+                orientation = self.orientation
+
+            if overlay_image is not None:
+                base_image.alpha_composite(overlay_image, dest=overlay_position)
+
+            # All images sent to the screen are in portrait mode.
+            if orientation == Orientation.LANDSCAPE:
+                base_image = base_image.transpose(Image.Transpose.ROTATE_270)
+            elif orientation == Orientation.REVERSE_LANDSCAPE:
+                base_image = base_image.transpose(Image.Transpose.ROTATE_90)
+            elif orientation == Orientation.PORTRAIT:
+                base_image = base_image.transpose(Image.Transpose.ROTATE_180)
+
+            try:
+                with self.update_queue_mutex:
+                    last_send = time.monotonic()
+                    if self._frame_encoding == "JPEG":
+                        jpeg = _encode_jpeg_under_limit(
+                            base_image,
+                            max_bytes=MAX_IMAGE_PAYLOAD_DEFAULT,
+                            quality=self._jpeg_quality,
+                            subsampling=2,
+                        )
+                        send_jpeg(self.dev, jpeg)
+                    else:
+                        send_pil_image_auto(self.dev, base_image, max_bytes=MAX_IMAGE_PAYLOAD_DEFAULT)
+                with self._frame_condition:
+                    self._sent_frame_count += 1
+                    sent_frames += 1
+                    self._frame_condition.notify_all()
+                if sent_frames == 1:
+                    logger.info("TUR_USB first coalesced frame sent")
+            except Exception:
+                logger.exception("TUR_USB frame upload failed")

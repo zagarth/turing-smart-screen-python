@@ -28,6 +28,7 @@ from functools import wraps
 
 import library.config as config
 import library.stats as stats
+from library.log import logger
 
 STOPPING = False
 
@@ -62,7 +63,10 @@ def schedule(interval):
                 # If the program is not stopping: re-schedule the task for future execution
                 scheduler.enter(periodic_interval, 1, periodic,
                                 (scheduler, periodic_interval, action, actionargs))
-            action(*actionargs)
+            try:
+                action(*actionargs)
+            except Exception:
+                logger.exception("Scheduled job %s failed", getattr(action, "__name__", str(action)))
 
         @wraps(func)
         def wrap(

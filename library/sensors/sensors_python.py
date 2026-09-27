@@ -34,7 +34,51 @@ import GPUtil
 import psutil
 
 import library.sensors.sensors as sensors
+import library.config as config
 from library.log import logger
+
+
+def _disk_path() -> str:
+    disk_path = config.CONFIG_DATA.get("config", {}).get("DISK_PATH", "ALL")
+    return disk_path if disk_path else "/"
+
+
+def _disk_usage_totals() -> tuple[int, int, int]:
+    disk_path = _disk_path()
+    if str(disk_path).upper() != "ALL":
+        usage = psutil.disk_usage(disk_path)
+        return int(usage.total), int(usage.used), int(usage.free)
+
+    total = 0
+    used = 0
+    free = 0
+    seen_mounts = set()
+
+    for part in psutil.disk_partitions(all=False):
+        mount = part.mountpoint
+        if not mount or mount in seen_mounts:
+            continue
+
+        if part.fstype == "":
+            continue
+        if sys.platform.startswith("win") and "cdrom" in part.opts.lower():
+            continue
+
+        try:
+            usage = psutil.disk_usage(mount)
+        except Exception:
+            continue
+
+        seen_mounts.add(mount)
+        total += int(usage.total)
+        used += int(usage.used)
+        free += int(usage.free)
+
+    if total <= 0:
+        usage = psutil.disk_usage("/")
+        return int(usage.total), int(usage.used), int(usage.free)
+
+    return total, used, free
 
 # AMD GPU on Linux
 try:
@@ -455,21 +499,24 @@ class Disk(sensors.Disk):
     @staticmethod
     def disk_usage_percent() -> float:
         try:
-            return psutil.disk_usage("/").percent
+            total, used, _ = _disk_usage_totals()
+            return used / total * 100.0 if total > 0 else math.nan
         except:
             return math.nan
 
     @staticmethod
     def disk_used() -> int:  # In bytes
         try:
-            return psutil.disk_usage("/").used
+            _, used, _ = _disk_usage_totals()
+            return used
         except:
             return -1
 
     @staticmethod
     def disk_free() -> int:  # In bytes
         try:
-            return psutil.disk_usage("/").free
+            _, _, free = _disk_usage_totals()
+            return free
         except:
             return -1
 

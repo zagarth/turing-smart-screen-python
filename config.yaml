@@ -1,16 +1,20 @@
----
 config:
   # Configuration values to set up basic communication
   # Set your COM port e.g. COM3 for Windows, /dev/ttyACM0 for Linux...
   # Use AUTO for COM port auto-discovery (may not work on every setup) or if device is not detected as a COM port
   # COM_PORT: "/dev/ttyACM0"
   # COM_PORT: "COM3"
-  COM_PORT: "AUTO"
+  COM_PORT: AUTO
+
+  # Disk path/partition used for DISK stats.
+  # Use 'ALL' to aggregate all mounted local drives into one combined value.
+  # Windows examples: 'ALL', 'C:\\', 'D:\\' ; Linux/macOS examples: 'ALL', '/'
+  DISK_PATH: ALL
 
   # Theme to use (located in res/themes)
   # Use the name of the folder as value
   # Choose a theme made for your screen size (see DISPLAY_SIZE inside theme.yaml)
-  THEME: 3.5inchTheme2
+  THEME: Gradient
 
   # Hardware sensors reading
   # Choose the appropriate method for reading your hardware sensors:
@@ -18,14 +22,14 @@ config:
   # - LHM            use LibreHardwareMonitor library to read hardware sensors (Windows only - NEEDS ADMIN RIGHTS)
   # - STUB / STATIC  use random/static data instead of real hardware sensors
   # - AUTO           use the best method based on your OS: Windows OS will use LHM, other OS will use Python libraries
-  HW_SENSORS: AUTO
+  HW_SENSORS: LHM
 
   # Network interfaces
   # Linux/MacOS interfaces are named "eth0", "wlan0", "wlp1s0", "enp2s0"...
   # For Windows use the interfaces pretty name: "Ethernet 2", "Wi-Fi", ...
   # Leave the fields empty if the card does not exist on your setup
-  ETH: "" # Ethernet Card
-  WLO: "" # Wi-Fi Card
+  ETH: Ethernet   # Ethernet Card
+  WLO: '' # Wi-Fi Card
 
   # CPU fan
   # For Linux/MacOS platforms, the CPU fan is amongst all fan sensors gathered from the motherboard chipset
@@ -37,18 +41,75 @@ config:
   # Address used for ping sensor. Can be internal/external IP (e.g. 8.8.8.8 or 192.168.0.1) or hostname (google.com)
   PING: 8.8.8.8
 
-  # Weather data with OpenWeatherMap API. Only useful if you want to use a theme that displays it
+  # Weather location used by the idle weather screen.
+  # Idle weather uses Open-Meteo and does not require an API key.
 
-  # OpenWeatherMap API KEY. Can be obtained by creating a free account on https://home.openweathermap.org/users/sign_up.
-  # You need to subscribe to the 3.0 OneCallAPI that has 1000 free daily calls
-  WEATHER_API_KEY: ""
+  # Legacy OpenWeatherMap key for stock themes that use the built-in WEATHER stats.
+  WEATHER_API_KEY: ''
   # Location from which to display the weather. Use for example https://www.latlong.net/ to get latitude/longitude
-  WEATHER_LATITUDE: 45.75
-  WEATHER_LONGITUDE: 4.85
+  WEATHER_LATITUDE: 42.9849
+  WEATHER_LONGITUDE: -81.2453
   # Units used to display temperatures (metric - °C, imperial - °F, standard - °K)
   WEATHER_UNITS: metric
-  # Language is used by the API. Find more here https://openweathermap.org/api/one-call-3#multi
+  # Language hint for providers that support it.
   WEATHER_LANGUAGE: en
+
+process_scheduling:
+  # Keep the monitor off the first CCD used by latency-sensitive foreground work.
+  PRIORITY: BELOW_NORMAL
+  CPU_AFFINITY: [16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
+
+idle_weather:
+  # Show weather for one minute, no more than once per hour, when the machine is idle.
+  ENABLED: true
+  CPU_THRESHOLD_PERCENT: 15
+  INTERVAL_SECONDS: 3600
+  DISPLAY_SECONDS: 60
+  POLL_SECONDS: 1
+  REFRESH_SECONDS: 600
+  BACKGROUND_DIR: F:\Scratch\tester\truzxbackground
+  NEWS_RSS_URL: https://feeds.bbci.co.uk/news/world/rss.xml
+
+gif_overlay:
+  # Cached sequential GIFs play only while both CPU and GPU stay below the thresholds.
+  ENABLED: true
+  LOOP_ENABLED: true
+  PLAY_ON_STARTUP: false
+  CPU_THRESHOLD_PERCENT: 15
+  GPU_THRESHOLD_PERCENT: 15
+  IDLE_SECONDS: 30
+  MIN_INTERVAL_SECONDS: 180
+  POLL_SECONDS: 2
+  SLOT_SECONDS: 12
+  PLAYBACK_FPS: 2
+  TARGET_AREA: AMD_LOGO
+  TARGET_OPACITY: 0
+  TRANSITION_SECONDS: 1.0
+  TRANSITION_STEPS: 8
+  AREA_PADDING: 8
+  ALLOW_UPSCALE: true
+  FILES:
+    - F:\Scratch\tester\Gif\AMD_animated\8bitAMD.gif
+    - F:\Scratch\tester\Gif\AMD_animated\amdLite.gif
+    - F:\Scratch\tester\Gif\AMD_animated\cpugpu.gif
+    - F:\Scratch\tester\Gif\AMD_animated\cpugpu2.gif
+    - F:\Scratch\tester\Gif\AMD_animated\galatic_amd.gif
+    - F:\Scratch\tester\Gif\AMD_animated\Ryzen.gif
+    - F:\Scratch\tester\Gif\bottom\2r6C.gif
+    - F:\Scratch\tester\Gif\bottom\3nR6.gif
+    - F:\Scratch\tester\Gif\bottom\5Btx.gif
+    - F:\Scratch\tester\Gif\bottom\ZbpB.gif
+    - F:\Scratch\tester\Gif\bottom\ZJFD.gif
+    - F:\Scratch\tester\Gif\whole panel\PYh.gif
+    - F:\Scratch\tester\Gif\whole panel\WnES.gif
+    - F:\Scratch\tester\Gif\whole panel\Y60K.gif
+    - F:\Scratch\tester\Gif\whole panel\YzDM.gif
+
+boot_splash:
+  # Show a static splash image before drawing the normal system dashboard.
+  ENABLED: true
+  DURATION_SECONDS: 30
+  IMAGE: F:\Scratch\tester\truzxbackground\circuit(1920×480).png
 
 display:
   # Display revision:
@@ -61,7 +122,13 @@ display:
   # - WEACT_B   for WeAct Studio Display FS V1 0.96"
   # - SIMU for simulated display (image written in screencap.png). Width & height will be detected from the theme
   # To identify your smart screen: https://github.com/mathoudebine/turing-smart-screen-python/wiki/Hardware-revisions
-  REVISION: A
+  REVISION: TUR_USB
+
+  # Maximum full-screen USB uploads per second. 0.5 sends one frame every 2 seconds.
+  TUR_USB_REFRESH_HZ: 0.5
+  TUR_USB_FRAME_ENCODING: JPEG
+  TUR_USB_JPEG_QUALITY: 90
+  CACHE_BUST_ON_STARTUP: true
 
   # Display Brightness
   # Set this as the desired %, 0 being completely dark and 100 being max brightness
@@ -71,7 +138,7 @@ display:
   # Display reverse: true/false
   # Set to true to reverse display orientation (landscape <-> reverse landscape, portrait <-> reverse portrait)
   # Note: Display basic orientation (portrait or landscape) is defined by the theme you have selected
-  DISPLAY_REVERSE: false
+  DISPLAY_REVERSE: true
 
   # Reset display on startup: true/false
   # By default, this program resets the display on startup, in case it is in a degraded state from previous runs.

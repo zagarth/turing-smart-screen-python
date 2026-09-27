@@ -35,7 +35,52 @@ import psutil
 from win32api import *
 
 import library.sensors.sensors as sensors
+import library.config as config
 from library.log import logger
+
+
+def _disk_path() -> str:
+    disk_path = config.CONFIG_DATA.get("config", {}).get("DISK_PATH", "ALL")
+    return disk_path if disk_path else "/"
+
+
+def _disk_usage_totals() -> tuple[int, int, int]:
+    disk_path = _disk_path()
+    if str(disk_path).upper() != "ALL":
+        usage = psutil.disk_usage(disk_path)
+        return int(usage.total), int(usage.used), int(usage.free)
+
+    total = 0
+    used = 0
+    free = 0
+    seen_mounts = set()
+
+    for part in psutil.disk_partitions(all=False):
+        mount = part.mountpoint
+        if not mount or mount in seen_mounts:
+            continue
+
+        # Skip non-storage entries (optical, empty fstype) that should not count as local drives.
+        if part.fstype == "":
+            continue
+        if sys.platform.startswith("win") and "cdrom" in part.opts.lower():
+            continue
+
+        try:
+            usage = psutil.disk_usage(mount)
+        except Exception:
+            continue
+
+        seen_mounts.add(mount)
+        total += int(usage.total)
+        used += int(usage.used)
+        free += int(usage.free)
+
+    if total <= 0:
+        usage = psutil.disk_usage("/")
+        return int(usage.total), int(usage.used), int(usage.free)
+
+    return total, used, free
 
 # Import LibreHardwareMonitor dll to Python
 lhm_dll = os.getcwd() + '\\external\\LibreHardwareMonitor\\LibreHardwareMonitorLib.dll'
@@ -193,13 +238,12 @@ class Cpu(sensors.Cpu):
         try:
             for sensor in cpu.Sensors:
                 if sensor.SensorType == Hardware.SensorType.Clock:
-                    # Keep only real core clocks, ignore effective core clocks
                     if "Core #" in str(sensor.Name) and "Effective" not in str(
                             sensor.Name) and sensor.Value is not None:
                         frequencies.append(float(sensor.Value))
 
             if frequencies:
-                # Take mean of all core clock as "CPU clock" (as it is done in Windows Task Manager Performance tab)
+                # Take mean of all core clocks (as it is done in Windows Task Manager Performance tab)
                 return mean(frequencies)
         except:
             pass
@@ -264,6 +308,8 @@ class Gpu(sensors.Gpu):
 
     # Latest FPS value is backed up in case next reading returns no value
     prev_fps = 0
+    logged_frequency_sensors = False
+    last_frequency_mhz = math.nan
 
     # Get GPU to use for sensors, and update it
     @classmethod
@@ -273,31 +319,33 @@ class Gpu(sensors.Gpu):
             gpu_to_use = get_hw_and_update(Hardware.HardwareType.GpuNvidia, cls.gpu_name)
         if gpu_to_use is None:
             gpu_to_use = get_hw_and_update(Hardware.HardwareType.GpuIntel, cls.gpu_name)
-
         return gpu_to_use
 
     @classmethod
     def stats(cls) -> Tuple[
-        float, float, float, float, float]:  # load (%) / used mem (%) / used mem (Mb) / total mem (Mb) / temp (°C)
+        float, float, float, float, float, float]:  # load (%) / used mem (%) / used mem (Mb) / total mem (Mb) / temp (°C) / clock (MHz)
         gpu_to_use = cls.get_gpu_to_use()
         if gpu_to_use is None:
             # GPU not supported
-            return math.nan, math.nan, math.nan, math.nan, math.nan
+            return math.nan, math.nan, math.nan, math.nan, math.nan, math.nan
 
         load = math.nan
+        core_load = math.nan
+        d3d_load = math.nan
         used_mem = math.nan
         total_mem = math.nan
         temp = math.nan
+        frequency = math.nan
+        memory_frequency = math.nan
+        clock_candidates = []
+        any_clock_candidates = []
 
         for sensor in gpu_to_use.Sensors:
             if sensor.SensorType == Hardware.SensorType.Load and str(sensor.Name).startswith(
                     "GPU Core") and sensor.Value is not None:
-                load = float(sensor.Value)
-            elif sensor.SensorType == Hardware.SensorType.Load and str(sensor.Name).startswith("D3D 3D") and math.isnan(
-                    load) and sensor.Value is not None:
-                # Only use D3D usage if global "GPU Core" sensor is not available, because it is less
-                # precise and does not cover the entire GPU: https://www.hwinfo.com/forum/threads/what-is-d3d-usage.759/
-                load = float(sensor.Value)
+                core_load = float(sensor.Value)
+            elif sensor.SensorType == Hardware.SensorType.Load and str(sensor.Name).startswith("D3D 3D") and sensor.Value is not None:
+                d3d_load = float(sensor.Value)
             elif sensor.SensorType == Hardware.SensorType.SmallData and str(sensor.Name).startswith(
                     "GPU Memory Used") and sensor.Value is not None:
                 used_mem = float(sensor.Value)
@@ -313,8 +361,44 @@ class Gpu(sensors.Gpu):
             elif sensor.SensorType == Hardware.SensorType.Temperature and str(sensor.Name).startswith(
                     "GPU Core") and sensor.Value is not None:
                 temp = float(sensor.Value)
+            elif sensor.SensorType == Hardware.SensorType.Clock and sensor.Value is not None:
+                name = str(sensor.Name)
+                if "Effective" in name:
+                    continue
+                value = float(sensor.Value)
+                if value <= 0:
+                    continue
+                any_clock_candidates.append(value)
+                if "Memory" in name:
+                    memory_frequency = value
+                elif "Core" in name or "Graphics" in name or "Shader" in name:
+                    frequency = value
+                else:
+                    clock_candidates.append(value)
 
-        return load, (used_mem / total_mem * 100.0), used_mem, total_mem, temp
+        if not math.isnan(memory_frequency):
+            frequency = memory_frequency
+        if math.isnan(frequency) and clock_candidates:
+            frequency = max(clock_candidates)
+        if math.isnan(frequency) and any_clock_candidates:
+            frequency = max(any_clock_candidates)
+        cls.last_frequency_mhz = frequency
+
+        # On newer AMD cards, "GPU Core" can appear static while D3D updates correctly.
+        # Use the highest available signal to avoid stale/flat percentages.
+        if not math.isnan(core_load) and not math.isnan(d3d_load):
+            load = max(core_load, d3d_load)
+        elif not math.isnan(core_load):
+            load = core_load
+        elif not math.isnan(d3d_load):
+            load = d3d_load
+
+        if math.isnan(used_mem) or math.isnan(total_mem) or total_mem == 0:
+            used_mem_percent = math.nan
+        else:
+            used_mem_percent = used_mem / total_mem * 100.0
+
+        return load, used_mem_percent, used_mem, total_mem, temp, frequency
 
     @classmethod
     def fps(cls) -> int:
@@ -356,19 +440,39 @@ class Gpu(sensors.Gpu):
 
     @classmethod
     def frequency(cls) -> float:
+        if not math.isnan(cls.last_frequency_mhz):
+            return cls.last_frequency_mhz
+
         gpu_to_use = cls.get_gpu_to_use()
         if gpu_to_use is None:
             # GPU not supported
             return math.nan
 
         try:
+            clock_candidates = []
+            any_clock_candidates = []
             for sensor in gpu_to_use.Sensors:
-                if sensor.SensorType == Hardware.SensorType.Clock:
-                    # Keep only real core clocks, ignore effective core clocks
-                    if "Core" in str(sensor.Name) and "Effective" not in str(sensor.Name) and sensor.Value is not None:
-                        return float(sensor.Value)
-        except:
-            pass
+                if sensor.SensorType == Hardware.SensorType.Clock and sensor.Value is not None:
+                    name = str(sensor.Name)
+                    if "Effective" in name:
+                        continue
+                    value = float(sensor.Value)
+                    if value <= 0:
+                        continue
+                    any_clock_candidates.append(value)
+                    if "Core" in name or "Graphics" in name or "Shader" in name:
+                        return value
+                    if "Memory" not in name:
+                        clock_candidates.append(value)
+
+            if clock_candidates:
+                return max(clock_candidates)
+            if any_clock_candidates:
+                return max(any_clock_candidates)
+        except Exception as exc:
+            if not cls.logged_frequency_sensors:
+                cls.logged_frequency_sensors = True
+                logger.warning("GPU frequency sensor probe failed: %s", exc)
 
         # No Frequency sensor for this GPU model
         return math.nan
@@ -455,15 +559,20 @@ class Memory(sensors.Memory):
 class Disk(sensors.Disk):
     @staticmethod
     def disk_usage_percent() -> float:
-        return psutil.disk_usage("/").percent
+        total, used, _ = _disk_usage_totals()
+        if total <= 0:
+            return math.nan
+        return used / total * 100.0
 
     @staticmethod
     def disk_used() -> int:  # In bytes
-        return psutil.disk_usage("/").used
+        _, used, _ = _disk_usage_totals()
+        return used
 
     @staticmethod
     def disk_free() -> int:  # In bytes
-        return psutil.disk_usage("/").free
+        _, _, free = _disk_usage_totals()
+        return free
 
 
 class Net(sensors.Net):

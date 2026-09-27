@@ -42,6 +42,7 @@ try:
     import time
     from pathlib import Path
     from PIL import Image
+    import psutil
 
     if platform.system() == 'Windows':
         import win32api
@@ -49,8 +50,10 @@ try:
         import win32gui
 
     from library.log import logger
-    import library.scheduler as scheduler
+    import library.config as config
     from library.display import display
+    import library.idle_weather as idle_weather
+    import library.gif_overlay as gif_overlay
 
 except Exception as e:
     print("""Import error: %s
@@ -70,6 +73,8 @@ except:
 
 MAIN_DIRECTORY = Path(__file__).resolve().parent
 DELAY_BETWEEN_THREADS = 0.25
+scheduler = None
+stats = None
 
 if __name__ == "__main__":
 
@@ -78,9 +83,30 @@ if __name__ == "__main__":
 
     logger.debug("Using Python %s" % sys.version)
 
+    scheduling = config.CONFIG_DATA.get("process_scheduling", {})
+    if platform.system() == "Windows" and scheduling:
+        priority_map = {
+            "IDLE": psutil.IDLE_PRIORITY_CLASS,
+            "BELOW_NORMAL": psutil.BELOW_NORMAL_PRIORITY_CLASS,
+            "NORMAL": psutil.NORMAL_PRIORITY_CLASS,
+        }
+        try:
+            process = psutil.Process()
+            priority_name = str(scheduling.get("PRIORITY", "BELOW_NORMAL")).upper()
+            process.nice(priority_map.get(priority_name, psutil.BELOW_NORMAL_PRIORITY_CLASS))
+            affinity = [int(cpu) for cpu in scheduling.get("CPU_AFFINITY", [])]
+            if affinity:
+                process.cpu_affinity(affinity)
+            logger.info("Process scheduling: priority=%s affinity=%s", priority_name, process.cpu_affinity())
+        except Exception as exc:
+            logger.warning("Unable to apply process scheduling: %s", exc)
+
 
     def wait_for_empty_queue(timeout: int = 5):
         # Waiting for all pending request to be sent to display
+        if scheduler is None:
+            return
+
         logger.info("Waiting for all pending request to be sent to display (%ds max)..." % timeout)
 
         wait_time = 0
@@ -96,7 +122,8 @@ if __name__ == "__main__":
 
         # Do not stop the program now in case data transmission was in progress
         # Instead, ask the scheduler to empty the action queue before stopping
-        scheduler.STOPPING = True
+        if scheduler is not None:
+            scheduler.STOPPING = True
 
         # Waiting for all pending request to be sent to display
         wait_for_empty_queue(5)
@@ -219,6 +246,41 @@ if __name__ == "__main__":
     logger.info("Initialize display")
     display.initialize_display()
 
+    if config.CONFIG_DATA["display"].get("CACHE_BUST_ON_STARTUP", False):
+        display.lcd.image_cache.clear()
+        display.lcd.font_cache.clear()
+        display.lcd.text_bbox_cache.clear()
+        display.lcd.Clear()
+        logger.info("Display caches and device framebuffer cleared")
+
+    boot_splash = config.CONFIG_DATA.get("boot_splash", {})
+    if not args.theme_screenshots and boot_splash.get("ENABLED", False):
+        splash_path = Path(boot_splash.get("IMAGE", ""))
+        if splash_path.exists():
+            splash = Image.open(splash_path).convert("RGB")
+            if splash.size == (1920, 480):
+                splash = splash.transpose(Image.Transpose.ROTATE_270)
+            splash = splash.resize((display.lcd.get_width(), display.lcd.get_height()), Image.Resampling.LANCZOS)
+            splash = splash.quantize(colors=64, method=Image.Quantize.MEDIANCUT).convert("RGB")
+            splash_seconds = int(boot_splash.get("DURATION_SECONDS", 30))
+            logger.info("Displaying boot splash while sensors load (%ds max)", splash_seconds)
+            display.lcd.DisplayPILImage(splash, 0, 0, display.lcd.get_width(), display.lcd.get_height())
+            splash_started = time.monotonic()
+
+            import library.scheduler as scheduler
+            import library.stats as stats
+
+            remaining = splash_seconds - (time.monotonic() - splash_started)
+            if remaining > 0:
+                time.sleep(remaining)
+        else:
+            logger.warning("Boot splash image not found: %s", splash_path)
+
+    if scheduler is None:
+        import library.scheduler as scheduler
+    if stats is None:
+        import library.stats as stats
+
     # Start serial queue handler
     if not args.theme_screenshots:
         scheduler.QueueHandler()
@@ -235,7 +297,6 @@ if __name__ == "__main__":
 
     # Start sensor scheduled reading. Avoid starting them all at the same time to optimize load
     logger.info("Starting system monitoring")
-    import library.stats as stats
 
     if not args.theme_screenshots:
         scheduler.CPUPercentage(); time.sleep(DELAY_BETWEEN_THREADS)
@@ -253,6 +314,8 @@ if __name__ == "__main__":
         scheduler.CustomStats(); time.sleep(DELAY_BETWEEN_THREADS)
         scheduler.WeatherStats(); time.sleep(DELAY_BETWEEN_THREADS)
         scheduler.PingStats(); time.sleep(DELAY_BETWEEN_THREADS)
+        idle_weather.start_idle_weather_monitor()
+        gif_overlay.start_gif_overlay_rotation()
     else:
         logger.info("Theme screenshots mode enabled - program will run %d iterations then close." % args.theme_screenshots)
         # Run a predefined number of time to generate theme screenshot then close

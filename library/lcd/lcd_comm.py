@@ -272,6 +272,8 @@ class LcdComm(ABC):
             background_image: Optional[str] = None,
             align: str = 'left',
             anchor: str = 'la',
+                stroke_width: int = 0,
+                stroke_fill: Color = (0, 0, 0),
     ):
         # Convert text to bitmap using PIL and display it
         # Provide the background image path to display text with transparent background
@@ -341,7 +343,8 @@ class LcdComm(ABC):
                 y = top
 
         # Draw text onto the background image with specified color & font
-        d.text((x, y), text, font=ttfont, fill=font_color, align=align, anchor=anchor)
+        d.text((x, y), text, font=ttfont, fill=font_color, align=align, anchor=anchor,
+            stroke_width=stroke_width, stroke_fill=parse_color(stroke_fill))
 
         # Restrict the dimensions if they overflow the display size
         left = max(left, 0)

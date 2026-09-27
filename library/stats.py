@@ -38,6 +38,7 @@ from psutil._common import bytes2human
 from uptime import uptime
 
 import library.config as config
+import library.screen_state as screen_state
 from library.display import display
 from library.log import logger
 
@@ -92,6 +93,9 @@ def get_theme_file_path(name):
 
 
 def display_themed_value(theme_data, value, min_size=0, unit=''):
+    if screen_state.idle_weather_active:
+        return
+
     if not theme_data.get("SHOW", False):
         return
 
@@ -118,29 +122,69 @@ def display_themed_value(theme_data, value, min_size=0, unit=''):
         background_image=get_theme_file_path(theme_data.get("BACKGROUND_IMAGE", None)),
         align=theme_data.get("ALIGN", "left"),
         anchor=theme_data.get("ANCHOR", "lt"),
+        stroke_width=theme_data.get("STROKE_WIDTH", 0),
+        stroke_fill=theme_data.get("STROKE_FILL", (0, 0, 0)),
     )
 
 
+def int_or_none(value):
+    if value is None:
+        return None
+
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return None
+
+    if not math.isfinite(value):
+        return None
+
+    return int(value)
+
+
 def display_themed_percent_value(theme_data, value):
+    value = int_or_none(value)
+    if value is None:
+        return
+
     display_themed_value(
         theme_data=theme_data,
-        value=int(value),
+        value=value,
         min_size=3,
         unit="%"
     )
 
 
 def display_themed_temperature_value(theme_data, value):
+    value = int_or_none(value)
+    if value is None:
+        return
+
+    temperature_theme_data = dict(theme_data)
+    if value >= temperature_theme_data.get("TEMP_HOT_THRESHOLD", 80):
+        temperature_theme_data["FONT_COLOR"] = temperature_theme_data.get("TEMP_COLOR_HOT", (224, 2, 48))
+    elif value >= temperature_theme_data.get("TEMP_WARM_THRESHOLD", 60):
+        temperature_theme_data["FONT_COLOR"] = temperature_theme_data.get("TEMP_COLOR_WARM", (255, 180, 40))
+    else:
+        temperature_theme_data["FONT_COLOR"] = temperature_theme_data.get("TEMP_COLOR_COLD", (120, 200, 255))
+
     display_themed_value(
-        theme_data=theme_data,
-        value=int(value),
+        theme_data=temperature_theme_data,
+        value=value,
         min_size=3,
         unit="°C"
     )
 
 
 def display_themed_progress_bar(theme_data, value):
+    if screen_state.idle_weather_active:
+        return
+
     if not theme_data.get("SHOW", False):
+        return
+
+    value = int_or_none(value)
+    if value is None:
         return
 
     display.lcd.DisplayProgressBar(
@@ -160,6 +204,9 @@ def display_themed_progress_bar(theme_data, value):
 
 
 def display_themed_radial_bar(theme_data, value, min_size=0, unit='', custom_text=None):
+    if screen_state.idle_weather_active:
+        return
+
     if not theme_data.get("SHOW", False):
         return
 
@@ -202,24 +249,35 @@ def display_themed_radial_bar(theme_data, value, min_size=0, unit='', custom_tex
 
 
 def display_themed_percent_radial_bar(theme_data, value):
+    value = int_or_none(value)
+    if value is None:
+        return
+
     display_themed_radial_bar(
         theme_data=theme_data,
-        value=int(value),
+        value=value,
         unit="%",
         min_size=3
     )
 
 
 def display_themed_temperature_radial_bar(theme_data, value):
+    value = int_or_none(value)
+    if value is None:
+        return
+
     display_themed_radial_bar(
         theme_data=theme_data,
-        value=int(value),
+        value=value,
         min_size=3,
         unit="°C"
     )
 
 
 def display_themed_line_graph(theme_data, values):
+    if screen_state.idle_weather_active:
+        return
+
     if not theme_data.get("SHOW", False):
         return
 
@@ -271,6 +329,8 @@ class CPU:
         cpu_percentage = sensors.Cpu.percentage(
             interval=theme_data.get("INTERVAL", None)
         )
+        if math.isfinite(cpu_percentage):
+            screen_state.cpu_percent = float(cpu_percentage)
         save_last_value(cpu_percentage, cls.last_values_cpu_percentage,
                         theme_data['LINE_GRAPH'].get("HISTORY_SIZE", DEFAULT_HISTORY_SIZE))
         # logger.debug(f"CPU Percentage: {cpu_percentage}")
@@ -290,15 +350,15 @@ class CPU:
 
         display_themed_value(
             theme_data=theme_data['TEXT'],
-            value=f'{freq_ghz:.2f}',
-            unit=" GHz",
+            value=f'{freq_ghz:.1f}',
+            unit="GHz",
             min_size=4
         )
         display_themed_progress_bar(theme_data['GRAPH'], freq_ghz)
         display_themed_radial_bar(
             theme_data=theme_data['RADIAL'],
-            value=f'{freq_ghz:.2f}',
-            unit=" GHz",
+            value=f'{freq_ghz:.1f}',
+            unit="GHz",
             min_size=4
         )
         display_themed_line_graph(theme_data['LINE_GRAPH'], cls.last_values_cpu_frequency)
@@ -382,15 +442,31 @@ class Gpu:
     last_values_gpu_fps = []
     last_values_gpu_fan_speed = []
     last_values_gpu_frequency = []
+    logged_gpu_frequency_display = False
 
     @classmethod
     def stats(cls):
-        load, memory_percentage, memory_used_mb, total_memory_mb, temperature = sensors.Gpu.stats()
-        fps = sensors.Gpu.fps()
-        fan_percent = sensors.Gpu.fan_percent()
-        freq_ghz = sensors.Gpu.frequency() / 1000
-
+        gpu_stats = sensors.Gpu.stats()
+        load, memory_percentage, memory_used_mb, total_memory_mb, temperature = gpu_stats[:5]
+        if math.isfinite(load):
+            screen_state.gpu_percent = float(load)
         theme_gpu_data = config.THEME_DATA['STATS']['GPU']
+        fps = math.nan
+        fan_percent = math.nan
+        freq_ghz = math.nan
+
+        if theme_gpu_data['FPS']['TEXT']['SHOW'] or theme_gpu_data['FPS']['RADIAL']['SHOW'] or theme_gpu_data['FPS'][
+            'GRAPH']['SHOW'] or theme_gpu_data['FPS']['LINE_GRAPH']['SHOW']:
+            fps = sensors.Gpu.fps()
+        if theme_gpu_data['FAN_SPEED']['TEXT']['SHOW'] or theme_gpu_data['FAN_SPEED']['RADIAL']['SHOW'] or \
+                theme_gpu_data['FAN_SPEED']['GRAPH']['SHOW'] or theme_gpu_data['FAN_SPEED']['LINE_GRAPH']['SHOW']:
+            fan_percent = sensors.Gpu.fan_percent()
+        if theme_gpu_data['FREQUENCY']['TEXT']['SHOW'] or theme_gpu_data['FREQUENCY']['RADIAL']['SHOW'] or \
+                theme_gpu_data['FREQUENCY']['GRAPH']['SHOW'] or theme_gpu_data['FREQUENCY']['LINE_GRAPH']['SHOW']:
+            if len(gpu_stats) > 5:
+                freq_ghz = gpu_stats[5] / 1000
+            else:
+                freq_ghz = sensors.Gpu.frequency() / 1000
 
         save_last_value(load, cls.last_values_gpu_percentage,
                         theme_gpu_data['PERCENTAGE']['LINE_GRAPH'].get("HISTORY_SIZE", DEFAULT_HISTORY_SIZE))
@@ -543,13 +619,13 @@ class Gpu:
         display_themed_progress_bar(gpu_fps_graph_data, fps)
         display_themed_value(
             theme_data=gpu_fps_text_data,
-            value=int(fps),
+            value=int_or_none(fps),
             min_size=4,
             unit=" FPS"
         )
         display_themed_radial_bar(
             theme_data=gpu_fps_radial_data,
-            value=int(fps),
+            value=int_or_none(fps),
             min_size=4,
             unit=" FPS"
         )
@@ -581,17 +657,38 @@ class Gpu:
         gpu_freq_radial_data = theme_gpu_data['FREQUENCY']['RADIAL']
         gpu_freq_graph_data = theme_gpu_data['FREQUENCY']['GRAPH']
         gpu_freq_line_graph_data = theme_gpu_data['FREQUENCY']['LINE_GRAPH']
+        if math.isnan(freq_ghz):
+            if gpu_freq_text_data['SHOW']:
+                logger.warning("Your GPU frequency is not supported yet")
+                display_themed_value(
+                    theme_data=gpu_freq_text_data,
+                    value="N/A",
+                    min_size=0
+                )
+            return
+
+        if freq_ghz < 1:
+            gpu_freq_value = f'{freq_ghz * 1000:.0f}'
+            gpu_freq_unit = "MHz"
+        else:
+            gpu_freq_value = f'{freq_ghz:.1f}'
+            gpu_freq_unit = "GHz"
+
+        if not cls.logged_gpu_frequency_display:
+            cls.logged_gpu_frequency_display = True
+            logger.info("GPU clock display value: %s%s", gpu_freq_value, gpu_freq_unit)
+
         display_themed_value(
             theme_data=gpu_freq_text_data,
-            value=f'{freq_ghz:.2f}',
-            unit=" GHz",
+            value=gpu_freq_value,
+            unit=gpu_freq_unit,
             min_size=4
         )
         display_themed_progress_bar(gpu_freq_graph_data, freq_ghz)
         display_themed_radial_bar(
             theme_data=gpu_freq_radial_data,
-            value=f'{freq_ghz:.2f}',
-            unit=" GHz",
+            value=gpu_freq_value,
+            unit=gpu_freq_unit,
             min_size=4
         )
         display_themed_line_graph(gpu_freq_line_graph_data, cls.last_values_gpu_frequency)
@@ -664,21 +761,18 @@ class Disk:
 
         display_themed_value(
             theme_data=disk_theme_data['USED']['TEXT'],
-            value=int(used / 1000000000),
-            min_size=5,
-            unit=" G"
+            value=f"{bytes2human(used)}",
+            min_size=6
         )
         display_themed_value(
             theme_data=disk_theme_data['TOTAL']['TEXT'],
-            value=int((free + used) / 1000000000),
-            min_size=5,
-            unit=" G"
+            value=f"{bytes2human(free + used)}",
+            min_size=6
         )
         display_themed_value(
             theme_data=disk_theme_data['FREE']['TEXT'],
-            value=int(free / 1000000000),
-            min_size=5,
-            unit=" G"
+            value=f"{bytes2human(free)}",
+            min_size=6
         )
 
 
@@ -730,11 +824,34 @@ class Net:
 
     @staticmethod
     def _show_themed_tax_rate(theme_data, rate):
+        if theme_data.get("COMPACT", False):
+            display_themed_value(
+                theme_data=theme_data,
+                value=Net._compact_rate(rate),
+                min_size=0
+            )
+            return
+
         display_themed_value(
             theme_data=theme_data,
             value=f"{bytes2human(rate, '%(value).1f %(symbol)s/s')}",
             min_size=10
         )
+
+    @staticmethod
+    def _compact_rate(rate):
+        units = ["B/s", "KB/s", "MB/s", "GB/s"]
+        value = float(rate)
+        unit_index = 0
+        while value >= 1024 and unit_index < len(units) - 1:
+            value /= 1024
+            unit_index += 1
+
+        if unit_index == 0:
+            return f"{value:.0f}{units[unit_index]}"
+        if value >= 100:
+            return f"{value:.0f}{units[unit_index]}"
+        return f"{value:.1f}{units[unit_index]}"
 
 
 class Date:

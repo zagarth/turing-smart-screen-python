@@ -4,7 +4,7 @@ author: "@mathoudebine"
 display:
   DISPLAY_SIZE: 8.8"
   DISPLAY_ORIENTATION: portrait
-  DISPLAY_RGB_LED: 226, 21, 103
+  DISPLAY_RGB_LED: 224, 2, 48
 
 static_images:
   BACKGROUND:
@@ -13,15 +13,13 @@ static_images:
     Y: 0
     WIDTH: 480
     HEIGHT: 1920
-static_text:
-  DISK:
-   TEXT: DISK
-   X: 164
-   Y: 1804
-   FONT: roboto-mono/RobotoMono-Bold.ttf
-   FONT_SIZE: 64
-   FONT_COLOR: 255, 255, 255
-   BACKGROUND_IMAGE: background.png
+  AMD_LOGO:
+    PATH: amd-logo.png
+    X: 120
+    Y: 840
+    WIDTH: 240
+    HEIGHT: 240
+static_text: {}
 
 STATS:
   CPU:
@@ -30,53 +28,149 @@ STATS:
       TEXT:
         SHOW: True
         SHOW_UNIT: True
-        X: 80
-        Y: 240
+        X: 55
+        Y: 120
         FONT: roboto-mono/RobotoMono-Regular.ttf
-        FONT_SIZE: 130
-        FONT_COLOR: 255, 255, 255
+        FONT_SIZE: 110
+        FONT_COLOR: 224, 2, 48
+        BACKGROUND_IMAGE: background.png
+      LINE_GRAPH:
+        SHOW: True
+        HISTORY_SIZE: 30
+        X: 340
+        Y: 155
+        WIDTH: 95
+        HEIGHT: 55
+        MIN_VALUE: 0
+        MAX_VALUE: 100
+        LINE_COLOR: 224, 2, 48
+        LINE_WIDTH: 2
         BACKGROUND_IMAGE: background.png
     TEMPERATURE:
       INTERVAL: 1
       TEXT:
         SHOW: True
         SHOW_UNIT: True
-        X: 134
-        Y: 154
+        X: 300
+        Y: 55
         FONT: roboto-mono/RobotoMono-Regular.ttf
-        FONT_SIZE: 60
+        FONT_SIZE: 45
         FONT_COLOR: 255, 255, 255
+        TEMP_WARM_THRESHOLD: 60
+        TEMP_HOT_THRESHOLD: 80
+        TEMP_COLOR_COLD: 120, 200, 255
+        TEMP_COLOR_WARM: 255, 180, 40
+        TEMP_COLOR_HOT: 224, 2, 48
+        BACKGROUND_IMAGE: background.png
+      LINE_GRAPH:
+        SHOW: True
+        HISTORY_SIZE: 30
+        X: 315
+        Y: 95
+        WIDTH: 120
+        HEIGHT: 55
+        MIN_VALUE: 20
+        MAX_VALUE: 100
+        LINE_COLOR: 120, 200, 255
+        LINE_WIDTH: 2
+        BACKGROUND_IMAGE: background.png
+    FREQUENCY:
+      INTERVAL: 1
+      TEXT:
+        SHOW: True
+        SHOW_UNIT: True
+        MIN_SIZE: 0
+        X: 240
+        Y: 670
+        ANCHOR: mt
+        ALIGN: center
+        FONT: roboto-mono/RobotoMono-Regular.ttf
+        FONT_SIZE: 110
+        FONT_COLOR: 224, 2, 48
         BACKGROUND_IMAGE: background.png
   GPU:
-    INTERVAL: 1
+    INTERVAL: 5
     PERCENTAGE:
       TEXT:
         SHOW: True
         SHOW_UNIT: True
-        X: 80
-        Y: 720
+        X: 55
+        Y: 390
         FONT: roboto-mono/RobotoMono-Regular.ttf
-        FONT_SIZE: 130
-        FONT_COLOR: 255, 255, 255
+        FONT_SIZE: 110
+        FONT_COLOR: 224, 2, 48
+        BACKGROUND_IMAGE: background.png
+      LINE_GRAPH:
+        SHOW: True
+        HISTORY_SIZE: 30
+        X: 340
+        Y: 425
+        WIDTH: 95
+        HEIGHT: 55
+        MIN_VALUE: 0
+        MAX_VALUE: 100
+        LINE_COLOR: 224, 2, 48
+        LINE_WIDTH: 2
         BACKGROUND_IMAGE: background.png
     TEMPERATURE:
       TEXT:
         SHOW: True
         SHOW_UNIT: True
-        X: 134
-        Y: 635
+        X: 300
+        Y: 325
         FONT: roboto-mono/RobotoMono-Regular.ttf
-        FONT_SIZE: 60
+        FONT_SIZE: 45
         FONT_COLOR: 255, 255, 255
+        TEMP_WARM_THRESHOLD: 60
+        TEMP_HOT_THRESHOLD: 80
+        TEMP_COLOR_COLD: 120, 200, 255
+        TEMP_COLOR_WARM: 255, 180, 40
+        TEMP_COLOR_HOT: 224, 2, 48
+        BACKGROUND_IMAGE: background.png
+      LINE_GRAPH:
+        SHOW: True
+        HISTORY_SIZE: 30
+        X: 315
+        Y: 365
+        WIDTH: 120
+        HEIGHT: 55
+        MIN_VALUE: 20
+        MAX_VALUE: 100
+        LINE_COLOR: 120, 200, 255
+        LINE_WIDTH: 2
+        BACKGROUND_IMAGE: background.png
+    MEMORY_PERCENT:
+      TEXT:
+        SHOW: True
+        SHOW_UNIT: True
+        MIN_SIZE: 0
+        X: 60
+        Y: 1480
+        FONT: roboto-mono/RobotoMono-Regular.ttf
+        FONT_SIZE: 80
+        FONT_COLOR: 224, 2, 48
+        BACKGROUND_IMAGE: background.png
+    FREQUENCY:
+      TEXT:
+        SHOW: True
+        SHOW_UNIT: True
+        MIN_SIZE: 0
+        X: 240
+        Y: 1755
+        ANCHOR: mt
+        ALIGN: center
+        FONT: roboto-mono/RobotoMono-Regular.ttf
+        FONT_SIZE: 110
+        FONT_COLOR: 224, 2, 48
         BACKGROUND_IMAGE: background.png
   MEMORY:
     INTERVAL: 5
     VIRTUAL:
       USED:
-        SHOW: True
+        SHOW: False
         SHOW_UNIT: True
-        X: 146
-        Y: 1120
+        X: 225
+        Y: 1380
         FONT: roboto-mono/RobotoMono-Regular.ttf
         FONT_SIZE: 45
         FONT_COLOR: 255, 255, 255
@@ -84,17 +178,18 @@ STATS:
       PERCENT_TEXT:
         SHOW: True
         SHOW_UNIT: True
-        X: 80
-        Y: 1192
+        MIN_SIZE: 0
+        X: 60
+        Y: 1210
         FONT: roboto-mono/RobotoMono-Regular.ttf
-        FONT_SIZE: 130
-        FONT_COLOR: 255, 255, 255
+        FONT_SIZE: 80
+        FONT_COLOR: 224, 2, 48
         BACKGROUND_IMAGE: background.png
   DISK:
     INTERVAL: 10
     USED:
       TEXT:
-        SHOW: True
+        SHOW: False
         SHOW_UNIT: True
         X: 146
         Y: 1590
@@ -105,9 +200,36 @@ STATS:
       PERCENT_TEXT:
         SHOW: True
         SHOW_UNIT: True
-        X: 80
-        Y: 1664
+        MIN_SIZE: 0
+        X: 260
+        Y: 1210
         FONT: roboto-mono/RobotoMono-Regular.ttf
-        FONT_SIZE: 130
+        FONT_SIZE: 80
+        FONT_COLOR: 224, 2, 48
+        BACKGROUND_IMAGE: background.png
+    TOTAL:
+      TEXT:
+        SHOW: False
+        SHOW_UNIT: True
+        X: 205
+        Y: 1680
+        FONT: roboto-mono/RobotoMono-Regular.ttf
+        FONT_SIZE: 45
         FONT_COLOR: 255, 255, 255
         BACKGROUND_IMAGE: background.png
+  NET:
+    INTERVAL: 2
+    ETH:
+      DOWNLOAD:
+        TEXT:
+          SHOW: True
+          MIN_SIZE: 0
+          COMPACT: True
+          X: 360
+          Y: 1485
+          ANCHOR: mt
+          ALIGN: center
+          FONT: roboto-mono/RobotoMono-Regular.ttf
+          FONT_SIZE: 42
+          FONT_COLOR: 255, 255, 255
+          BACKGROUND_IMAGE: background.png

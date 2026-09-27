@@ -102,7 +102,11 @@ class Display:
             self.lcd = LcdCommRevD(com_port=config.CONFIG_DATA['config']['COM_PORT'],
                                    update_queue=config.update_queue)
         elif config.CONFIG_DATA["display"]["REVISION"] == "TUR_USB":
-            self.lcd = LcdCommTuringUSB()
+            self.lcd = LcdCommTuringUSB(
+                frame_rate=config.CONFIG_DATA["display"].get("TUR_USB_REFRESH_HZ", 1.0),
+                frame_encoding=config.CONFIG_DATA["display"].get("TUR_USB_FRAME_ENCODING", "JPEG"),
+                jpeg_quality=config.CONFIG_DATA["display"].get("TUR_USB_JPEG_QUALITY", 90),
+            )
         elif config.CONFIG_DATA["display"]["REVISION"] == "WEACT_A":
             self.lcd = LcdCommWeActA(com_port=config.CONFIG_DATA['config']['COM_PORT'],
                                    update_queue=config.update_queue)
@@ -152,6 +156,8 @@ class Display:
     def display_static_images(self):
         if config.THEME_DATA.get('static_images', False):
             for image in config.THEME_DATA['static_images']:
+                if not config.THEME_DATA['static_images'][image].get("SHOW", True):
+                    continue
                 logger.debug(f"Drawing Image: {image}")
                 self.lcd.DisplayBitmap(
                     bitmap_path=config.THEME_DATA['PATH'] + config.THEME_DATA['static_images'][image].get("PATH"),
@@ -181,6 +187,8 @@ class Display:
                                                                                                None)),
                     align=config.THEME_DATA['static_text'][text].get("ALIGN", "left"),
                     anchor=config.THEME_DATA['static_text'][text].get("ANCHOR", "lt"),
+                    stroke_width=config.THEME_DATA['static_text'][text].get("STROKE_WIDTH", 0),
+                    stroke_fill=config.THEME_DATA['static_text'][text].get("STROKE_FILL", (0, 0, 0)),
                 )
 
 

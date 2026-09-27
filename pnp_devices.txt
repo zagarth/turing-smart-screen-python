@@ -1,0 +1,62 @@
+
+Class                 FriendlyName                                                   InstanceId                                                                     Status
+-----                 ------------                                                   ----------                                                                     ------
+AudioProcessingObject Realtek Audio Effects Component (USB)                          SWD\DRIVERENUM\{C3A63EDD-2D27-4B66-B155-5E94B43D926A}#REALTEKAPO&A&2A65343D&0  OK    
+Bluetooth             Bluetooth Device (RFCOMM Protocol TDI)                         BTH\MS_RFCOMM\A&352EEB07&0&0                                                   OK    
+HIDClass              HID-compliant consumer control device                          HID\VID_046D&PID_C33C&MI_01&COL02\B&ED26C30&0&0001                             OK    
+HIDClass              HID-compliant consumer control device                          HID\VID_046D&PID_C07D&MI_01&COL02\B&309F5505&0&0001                            OK    
+HIDClass              HID-compliant consumer control device                          HID\VID_03F0&PID_0B92&MI_03&COL01\B&4626DD0&0&0000                             OK    
+HIDClass              HID-compliant device                                           HID\HID_DEVICE_SYSTEM_VHF\B&18733533&0&0000                                    OK    
+HIDClass              HID-compliant headset                                          HID\VID_03F0&PID_0B92&MI_03&COL02\B&4626DD0&0&0001                             OK    
+HIDClass              HID-compliant system controller                                HID\VID_046D&PID_C07D&MI_01&COL03\B&309F5505&0&0002                            OK    
+HIDClass              HID-compliant vendor-defined device                            HID\VID_0B05&PID_19AF&MI_02\A&D29D7F0&0&0000                                   OK    
+HIDClass              HID-compliant vendor-defined device                            HID\VID_046D&PID_C33C&MI_01&COL03\B&ED26C30&0&0002                             OK    
+HIDClass              HID-compliant vendor-defined device                            HID\VID_046D&PID_C07D&MI_01&COL04\B&309F5505&0&0003                            OK    
+HIDClass              HID-compliant vendor-defined device                            HID\VID_046D&PID_C33C&MI_01&COL04\B&ED26C30&0&0003                             OK    
+HIDClass              HID-compliant vendor-defined device                            HID\VID_0B05&PID_1B9B&MI_07\A&2F8283EF&0&0000                                  OK    
+HIDClass              HID-compliant vendor-defined device                            HID\VID_0BDA&PID_1100\B&392E52A4&0&0000                                        OK    
+HIDClass              HID-compliant vendor-defined device                            HID\VID_046D&PID_C07D&MI_01&COL05\B&309F5505&0&0004                            OK    
+Monitor               Generic Monitor (X34 X5)                                       DISPLAY\ACR0E03\7&A2A444A&0&UID512                                             OK    
+Mouse                 HID-compliant mouse                                            HID\VID_046D&PID_C07D&MI_00\B&3453D92B&0&0000                                  OK    
+Net                   WAN Miniport (Network Monitor)                                 SWD\MSRRAS\MS_NDISWANBH                                                        OK    
+SoftwareComponent     AMD-Windows Support Components                                 SWD\DRIVERENUM\AMDWIN&7&A2A444A&0                                              OK    
+SoftwareComponent     Realtek Asio Component                                         SWD\DRIVERENUM\{C3A63EDD-2D27-4B66-B155-5E94B43D926A}#REALTEKASIO&A&2A65343D&0 OK    
+System                AMD Application Compatibility Database                         ACPI\AMDI0204\2&DABA3FF&0                                                      OK    
+System                Composite Bus Enumerator                                       ROOT\COMPOSITEBUS\0000                                                         OK    
+System                Microsoft ACPI-Compliant Embedded Controller                   ACPI\PNP0C09\4&11544EA4&0                                                      OK    
+System                Microsoft ACPI-Compliant System                                ACPI_HAL\PNP0C08\0                                                             OK    
+System                Microsoft UEFI-Compliant System                                ACPI_HAL\UEFI\0                                                                OK    
+System                PCI Express Root Complex                                       ACPI\PNP0A08\0                                                                 OK    
+USB                   AMD USB 2.0 eXtensible Host Controller - 1.20 (Microsoft)      PCI\VEN_1022&DEV_15B8&SUBSYS_88771043&REV_00\4&89701DF&0&0043                  OK    
+USB                   AMD USB 3.10 eXtensible Host Controller - 1.20 (Microsoft)     PCI\VEN_1022&DEV_15B6&SUBSYS_88771043&REV_00\4&1EBE6A9C&0&0341                 OK    
+USB                   AMD USB 3.10 eXtensible Host Controller - 1.20 (Microsoft)     PCI\VEN_1022&DEV_15B7&SUBSYS_88771043&REV_00\4&1EBE6A9C&0&0441                 OK    
+USB                   AMD USB 3.20 eXtensible Host Controller - 1.10 (Microsoft)     PCI\VEN_1022&DEV_43FC&SUBSYS_11421B21&REV_01\6&2AF91C3C&0&00600011             OK    
+USB                   ASMedia USB 3.20 eXtensible Host Controller - 1.20 (Microsoft) PCI\VEN_1B21&DEV_2426&SUBSYS_24211B21&REV_01\451ECAFFFF5177A000                OK    
+USB                   G512                                                           USB\VID_046D&PID_C33C\197638553638                                             OK    
+USB                   Generic SuperSpeed USB Hub                                     USB\VID_0BDA&PID_0411\8&2D69411B&0&4                                           OK    
+USB                   Generic SuperSpeed USB Hub                                     USB\VID_0BDA&PID_0411\8&2D69411B&0&2                                           OK    
+USB                   Generic SuperSpeed USB Hub                                     USB\VID_174C&PID_3174\8&2D69411B&0&3                                           OK    
+USB                   Generic USB Hub                                                USB\VID_0BDA&PID_5411\8&2D69411B&0&7                                           OK    
+USB                   Generic USB Hub                                                USB\VID_0BDA&PID_5411\8&2D69411B&0&9                                           OK    
+USB                   Generic USB Hub                                                USB\VID_174C&PID_2174\8&2D69411B&0&8                                           OK    
+USB                   Generic USB Hub                                                USB\VID_0BDA&PID_5411\9&37BAD77D&0&3                                           OK    
+USB                   ITE USB Connector Client Device                                ACPI\ITE8853\2                                                                 OK    
+USB                   Realtek UcmCx Client Device                                    ACPI\RTK5452\1                                                                 OK    
+USB                   USB Composite Device                                           USB\VID_03F0&PID_0B92\00000000                                                 OK    
+USB                   USB Composite Device                                           USB\VID_0B05&PID_1B9B\8&2D69411B&0&11                                          OK    
+USB                   USB Composite Device                                           USB\VID_13D3&PID_3602\000000000                                                OK    
+USB                   USB Composite Device                                           USB\VID_046D&PID_C07D\187A364D3738                                             OK    
+USB                   USB Composite Device                                           USB\VID_0B05&PID_19AF\9876543210                                               OK    
+USB                   USB Mass Storage Device                                        USB\VID_14CD&PID_1212\121220160204                                             OK    
+USB                   USB Root Hub (USB 3.0)                                         USB\ROOT_HUB30\5&B222599&0&0                                                   OK    
+USB                   USB Root Hub (USB 3.0)                                         USB\ROOT_HUB30\5&2E6429FC&0&0                                                  OK    
+USB                   USB Root Hub (USB 3.0)                                         USB\ROOT_HUB30\7&349E6D04&0&0                                                  OK    
+USB                   USB Root Hub (USB 3.0)                                         USB\ROOT_HUB30\5&239A9E6D&0&0                                                  OK    
+USB                   USB Root Hub (USB 3.0)                                         USB\ROOT_HUB30\7&3898D510&0&0                                                  OK    
+USB                   USB4 Root Router (1.0)                                         USB4\ROOT_DEVICE_ROUTER&VID_1B21&PID_2425\7&1CBA5F63&0&0                       OK    
+USB                   USB4(TM) Host Router (Microsoft)                               PCI\VEN_1B21&DEV_2425&SUBSYS_24211B21&REV_01&USB4_MS_CM\451ECAFFFF5177A000     OK    
+USBDevice             AURA LED Controller                                            USB\VID_0B05&PID_19AF&MI_00\9&DE2EAF5&0&0000                                   OK    
+USBDevice             TURZX1.0                                                       USB\VID_1CBE&PID_0088\651F0AA9EACC0206                                         OK    
+
+
+
