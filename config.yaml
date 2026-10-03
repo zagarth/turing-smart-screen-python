@@ -81,12 +81,17 @@ gif_overlay:
   MIN_INTERVAL_SECONDS: 180
   POLL_SECONDS: 2
   SLOT_SECONDS: 12
-  PLAYBACK_FPS: 2
+  # Playback only stops early if CPU/GPU stay above the thresholds this long.
+  ABORT_AFTER_SECONDS: 30
+  PLAYBACK_FPS: 8
   TARGET_AREA: AMD_LOGO
+  # Clear 480x240 band around the logo: X, Y, WIDTH, HEIGHT.
+  TARGET_BOX: [0, 840, 480, 240]
   TARGET_OPACITY: 0
   TRANSITION_SECONDS: 1.0
   TRANSITION_STEPS: 8
-  AREA_PADDING: 8
+  AREA_PADDING: 0
+  EDGE_FEATHER: 12
   ALLOW_UPSCALE: true
   FILES:
     - F:\Scratch\tester\Gif\AMD_animated\8bitAMD.gif

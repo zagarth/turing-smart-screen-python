@@ -2,12 +2,17 @@ import threading
 import time
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageChops, ImageDraw
 
 import library.config as config
 import library.screen_state as screen_state
 from library.display import display
 from library.log import logger
+
+# Per-file (crop box, first visible frame, opaque) found on first play; frames themselves are not cached.
+_gif_layouts = {}
+# Near-black pixels of opaque GIFs fade out so their background blends into the dashboard.
+_KEY_LUT = [0 if value <= 12 else min(255, (value - 12) * 255 // 28) for value in range(256)]
 
 
 def start_gif_overlay_rotation():
@@ -38,7 +43,8 @@ def _gif_overlay_loop():
     min_interval = max(1, int(overlay_config.get("MIN_INTERVAL_SECONDS", 300)))
     poll_seconds = max(1, int(overlay_config.get("POLL_SECONDS", 2)))
     next_allowed = time.monotonic()
-    idle_since = time.monotonic() - idle_seconds
+    idle_since = None
+    first_play = True
     playlist_index = 0
 
     logger.info("GIF rotation enabled: %d sequential files, CPU < %.1f%%, GPU < %.1f%% for %ds",
@@ -55,10 +61,12 @@ def _gif_overlay_loop():
         if idle_since is None:
             idle_since = now
 
-        if now >= next_allowed and now - idle_since >= idle_seconds:
+        required_idle = 0 if first_play else idle_seconds
+        if now >= next_allowed and now - idle_since >= required_idle:
             gif_path = gif_paths[playlist_index % len(gif_paths)]
             completed = _play_gif(gif_path, overlay_config, cpu_threshold, gpu_threshold)
             if completed:
+                first_play = False
                 playlist_index = (playlist_index + 1) % len(gif_paths)
                 next_allowed = time.monotonic() + min_interval
                 idle_since = time.monotonic()
@@ -71,11 +79,13 @@ def _gif_overlay_loop():
 
 def _play_gif(gif_path, overlay_config, cpu_threshold, gpu_threshold):
     if screen_state.idle_weather_active or not _loads_below(cpu_threshold, gpu_threshold):
-        return
+        return False
 
     playback_fps = max(0.5, float(overlay_config.get("PLAYBACK_FPS", 8)))
     slot_seconds = max(1, float(overlay_config.get("SLOT_SECONDS", 12)))
+    abort_after = max(0, float(overlay_config.get("ABORT_AFTER_SECONDS", 30)))
     target_area = str(overlay_config.get("TARGET_AREA", "AMD_LOGO"))
+    target_box = overlay_config.get("TARGET_BOX")
     target_opacity = max(0, min(255, int(overlay_config.get("TARGET_OPACITY", 0))))
     transition_seconds = max(0, float(overlay_config.get("TRANSITION_SECONDS", 1.0)))
     transition_steps = max(1, int(overlay_config.get("TRANSITION_STEPS", 8)))
@@ -86,9 +96,11 @@ def _play_gif(gif_path, overlay_config, cpu_threshold, gpu_threshold):
     area_background = None
     screen_state.gif_overlay_active = True
     try:
-        area_position, area_size, area_background, target_image_data, target_image = _target_area(target_area)
-        logger.info("GIF overlay started: %s area=%s slot=%ss fps=%.1f",
-                    gif_path.name, target_area, slot_seconds, playback_fps)
+        area_position, area_size, area_background, target_image_data, target_image = _target_area(
+            target_area, target_box)
+        crop_box, first_frame, opaque = _gif_layout(gif_path)
+        logger.info("GIF overlay started: %s area=%s size=%s slot=%ss fps=%.1f",
+                    gif_path.name, target_area, area_size, slot_seconds, playback_fps)
         if target_opacity == 0:
             transition_fps = transition_steps / transition_seconds if transition_seconds > 0 else playback_fps
             display.lcd.SetTemporaryFrameRate(transition_fps)
@@ -104,32 +116,46 @@ def _play_gif(gif_path, overlay_config, cpu_threshold, gpu_threshold):
             display.lcd.DisplayPILImage(area_background, *area_position, *area_size)
             target_hidden = True
         with Image.open(gif_path) as gif:
-            available_width = max(1, area_size[0] - max(0, int(overlay_config.get("AREA_PADDING", 8))) * 2)
-            available_height = max(1, area_size[1] - max(0, int(overlay_config.get("AREA_PADDING", 8))) * 2)
-            scale = min(available_width / gif.width, available_height / gif.height)
+            padding = max(0, int(overlay_config.get("AREA_PADDING", 0)))
+            crop_width = crop_box[2] - crop_box[0]
+            crop_height = crop_box[3] - crop_box[1]
+            scale = min(max(1, area_size[0] - padding * 2) / crop_width,
+                        max(1, area_size[1] - padding * 2) / crop_height)
             if not bool(overlay_config.get("ALLOW_UPSCALE", False)):
                 scale = min(1.0, scale)
-            frame_size = (max(1, round(gif.width * scale)), max(1, round(gif.height * scale)))
-            frame_position = ((area_size[0] - frame_size[0]) // 2, (area_size[1] - frame_size[1]) // 2)
-            first_visible_frame = 0
-            for frame_index in range(getattr(gif, "n_frames", 1)):
-                gif.seek(frame_index)
-                if gif.convert("RGB").getbbox() is not None:
-                    first_visible_frame = frame_index
-                    break
+            frame_size = (max(1, round(crop_width * scale)), max(1, round(crop_height * scale)))
+            frame_position = (
+                area_position[0] + (area_size[0] - frame_size[0]) // 2,
+                area_position[1] + (area_size[1] - frame_size[1]) // 2,
+            )
+            edge_mask = _edge_mask(frame_size, int(overlay_config.get("EDGE_FEATHER", 12))) if opaque else None
+            n_frames = getattr(gif, "n_frames", 1)
             display.lcd.SetTemporaryFrameRate(playback_fps)
-            deadline = time.monotonic() + slot_seconds
-            while time.monotonic() < deadline:
-                for frame_index in range(first_visible_frame, getattr(gif, "n_frames", 1)):
-                    if time.monotonic() >= deadline:
-                        break
+            started = time.monotonic()
+            deadline = started + slot_seconds
+            frame_index = first_frame
+            gif.seek(frame_index)
+            frame_end = started + _frame_duration(gif)
+            over_since = None
+            while True:
+                now = time.monotonic()
+                if now >= deadline:
+                    break
+                if _loads_below(cpu_threshold, gpu_threshold):
+                    over_since = None
+                elif over_since is None:
+                    over_since = now
+                elif now - over_since >= abort_after:
+                    logger.info("GIF overlay stopped: load above threshold for %.0fs", abort_after)
+                    return False
+                # Skip frames the USB send rate cannot show so the clip plays at its real speed.
+                while now >= frame_end:
+                    frame_index = frame_index + 1 if frame_index + 1 < n_frames else first_frame
                     gif.seek(frame_index)
-                    frame = gif.convert("RGBA")
-                    if frame.size != frame_size:
-                        frame = frame.resize(frame_size, Image.Resampling.LANCZOS)
-                    overlay_position = (area_position[0] + frame_position[0], area_position[1] + frame_position[1])
-                    if not display.lcd.SetOverlayImageAndWait(frame, *overlay_position, timeout=5.0):
-                        logger.warning("GIF overlay frame %d timed out waiting for USB send", frame_index)
+                    frame_end += _frame_duration(gif)
+                frame = _prepare_frame(gif, crop_box, frame_size, edge_mask)
+                if not display.lcd.SetOverlayImageAndWait(frame, *frame_position, timeout=5.0):
+                    logger.warning("GIF overlay frame %d timed out waiting for USB send", frame_index)
             return True
     except Exception:
         logger.exception("GIF overlay failed")
@@ -168,17 +194,89 @@ def _loads_below(cpu_threshold, gpu_threshold):
     )
 
 
-def _target_area(area_name):
+def _gif_layout(gif_path):
+    layout = _gif_layouts.get(gif_path)
+    if layout is not None:
+        return layout
+
+    luma_box = alpha_box = None
+    first_luma = first_alpha = None
+    opaque = True
+    with Image.open(gif_path) as gif:
+        for index in range(getattr(gif, "n_frames", 1)):
+            gif.seek(index)
+            frame = gif.convert("RGBA")
+            alpha = frame.getchannel("A")
+            if alpha.getextrema()[0] < 255:
+                opaque = False
+            box = frame.convert("L").point(lambda value: 255 if value > 40 else 0).getbbox()
+            if box:
+                first_luma = index if first_luma is None else first_luma
+                luma_box = box if luma_box is None else _union_box(luma_box, box)
+            box = alpha.getbbox()
+            if box:
+                first_alpha = index if first_alpha is None else first_alpha
+                alpha_box = box if alpha_box is None else _union_box(alpha_box, box)
+        full_box = (0, 0, gif.width, gif.height)
+
+    if opaque:
+        layout = (luma_box or full_box, first_luma or 0, True)
+    else:
+        layout = (alpha_box or full_box, first_alpha or 0, False)
+    _gif_layouts[gif_path] = layout
+    logger.info("GIF layout: %s crop=%s first_frame=%d opaque=%s", Path(gif_path).name, *layout)
+    return layout
+
+
+def _union_box(a, b):
+    return min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3])
+
+
+def _frame_duration(gif):
+    duration = gif.info.get("duration", 100) or 100
+    # Browsers treat near-zero GIF delays as 100 ms; match that.
+    return (duration if duration >= 20 else 100) / 1000
+
+
+def _edge_mask(size, feather):
+    mask = Image.new("L", size, 255)
+    feather = max(0, min(feather, min(size) // 2))
+    draw = ImageDraw.Draw(mask)
+    for step in range(feather):
+        draw.rectangle((step, step, size[0] - 1 - step, size[1] - 1 - step),
+                       outline=round(255 * step / feather))
+    return mask
+
+
+def _prepare_frame(gif, crop_box, frame_size, edge_mask):
+    frame = gif.convert("RGBA")
+    if crop_box != (0, 0, frame.width, frame.height):
+        frame = frame.crop(crop_box)
+    if frame.size != frame_size:
+        frame = frame.resize(frame_size, Image.Resampling.LANCZOS)
+    if edge_mask is not None:
+        frame.putalpha(ImageChops.multiply(frame.convert("L").point(_KEY_LUT), edge_mask))
+    return frame
+
+
+def _target_area(area_name, target_box=None):
     area_data = config.THEME_DATA.get("static_images", {}).get(area_name)
     if not area_data:
         raise ValueError(f"GIF target area is not defined in theme static_images: {area_name}")
 
-    x = int(area_data.get("X", 0))
-    y = int(area_data.get("Y", 0))
-    width = int(area_data.get("WIDTH", 0))
-    height = int(area_data.get("HEIGHT", 0))
-    if width <= 0 or height <= 0:
+    logo_x = int(area_data.get("X", 0))
+    logo_y = int(area_data.get("Y", 0))
+    logo_width = int(area_data.get("WIDTH", 0))
+    logo_height = int(area_data.get("HEIGHT", 0))
+    if logo_width <= 0 or logo_height <= 0:
         raise ValueError(f"GIF target area has invalid dimensions: {area_name}")
+
+    if target_box:
+        x, y, width, height = (int(value) for value in target_box)
+    else:
+        x, y, width, height = logo_x, logo_y, logo_width, logo_height
+    if not (x <= logo_x and y <= logo_y and logo_x + logo_width <= x + width and logo_y + logo_height <= y + height):
+        raise ValueError("GIF TARGET_BOX must fully contain the target logo")
 
     background_data = config.THEME_DATA.get("static_images", {}).get("BACKGROUND", {})
     background_path = Path(config.THEME_DATA["PATH"]) / background_data.get("PATH", "background.png")
@@ -190,9 +288,11 @@ def _target_area(area_name):
         )
 
     image_path = Path(config.THEME_DATA["PATH"]) / area_data.get("PATH", "")
-    target_image = Image.open(image_path).convert("RGBA")
-    if target_image.size != (width, height):
-        target_image = target_image.resize((width, height), Image.Resampling.LANCZOS)
+    logo = Image.open(image_path).convert("RGBA")
+    if logo.size != (logo_width, logo_height):
+        logo = logo.resize((logo_width, logo_height), Image.Resampling.LANCZOS)
+    target_image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    target_image.alpha_composite(logo, dest=(logo_x - x, logo_y - y))
 
     return (
         (x, y),
